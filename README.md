@@ -77,7 +77,7 @@ Isolation Forest es un algoritmo de detección de anomalías que se basa en el p
 
 1. Clonar el repositorio:
 ```bash
-git clone <repository-url>
+git clone https://github.com/MyEducationalRepos/suspiscious-transactions.git
 cd suspicious-transactions
 ```
 
