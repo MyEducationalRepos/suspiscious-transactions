@@ -118,7 +118,7 @@ def generate_single_transaction(base_date=None, last_transaction_time=None):
         'ip_risk_score': round(ip_risk, 2)
     }
 
-def generate_fake_transactions(num_transactions=1000, start_date=None):
+def generate_fake_transactions(num_transactions=10000, start_date=None):
     """
     Generate fake transaction data with realistic patterns.
     
