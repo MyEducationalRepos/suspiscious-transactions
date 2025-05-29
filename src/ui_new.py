@@ -15,29 +15,10 @@ def prepare_pca_features(data):
     df = data.copy()
     
     # Select only numeric features for PCA
-    numeric_features = [
-        'monto', 'duracion_segundos', 'transacciones_recientes_24h',
-        'saldo_anterior', 'comision', 'distancia_km',
-        'intentos_fallidos', 'puntaje_confianza_dispositivo', 'puntaje_riesgo_ip'
-    ]
-    
-    # Filter only the numeric features that exist in the dataframe and are actually numeric
-    available_numeric_features = []
-    for feature in numeric_features:
-        if feature in df.columns:
-            try:
-                # Try to convert to numeric, if successful, add to features
-                df[feature] = pd.to_numeric(df[feature], errors='raise')
-                available_numeric_features.append(feature)
-            except Exception as e:
-                st.write(f"Error converting {feature} to numeric: {str(e)}")
-                continue
-    
-    if not available_numeric_features:
-        raise ValueError("No numeric features available for PCA")
+    numeric_features = ['amount', 'failed_attempts']
     
     # Create numeric data for PCA
-    numeric_data = df[available_numeric_features].copy()
+    numeric_data = df[numeric_features].copy()
     
     # Scale the features
     scaler = StandardScaler()
@@ -54,10 +35,9 @@ def prepare_pca_features(data):
     )
     
     # Add original data for reference
-    pca_df['monto'] = df['monto']
-    pca_df['fecha'] = df['fecha']
-    pca_df['es_anomalia'] = df['es_anomalia']
-    pca_df['tipo_transaccion'] = df['tipo_transaccion']
+    pca_df['amount'] = df['amount']
+    pca_df['failed_attempts'] = df['failed_attempts']
+    pca_df['is_anomaly'] = df['is_anomaly']
     
     # Calculate explained variance
     explained_variance = pca.explained_variance_ratio_
@@ -67,41 +47,9 @@ def prepare_pca_features(data):
         'varianza_explicada': explained_variance,
         'componentes': pd.DataFrame(
             pca.components_,
-            columns=available_numeric_features
+            columns=numeric_features
         )
     }
-
-def explain_anomaly(row, global_stats):
-    """
-    Explain why a transaction is marked as suspicious.
-    
-    Args:
-        row (pandas.Series): The transaction row to analyze
-        global_stats (dict): Dictionary containing global statistics for comparison
-    """
-    reasons = []
-    
-    # Check amount
-    if row['monto'] > global_stats['monto_mean'] + 2 * global_stats['monto_std']:
-        reasons.append("Monto inusual")
-    
-    # Check time
-    if row['fecha'].hour < 6 or row['fecha'].hour > 22:
-        reasons.append("Hora inusual")
-    
-    # Check location
-    if row['distancia_km'] > global_stats['distancia_mean'] + 2 * global_stats['distancia_std']:
-        reasons.append("Distancia inusual")
-    
-    # Check transaction type
-    if row['tipo_transaccion'] in ['retiro', 'transferencia'] and row['monto'] > global_stats['monto_mean']:
-        reasons.append("Tipo de transacción inusual")
-    
-    # Check failed attempts
-    if row['intentos_fallidos'] > 2:
-        reasons.append("Múltiples intentos fallidos")
-    
-    return " | ".join(reasons) if reasons else "Múltiples factores"
 
 def main(data):
     """
@@ -113,12 +61,9 @@ def main(data):
     st.title("Detección de Anomalías en Transacciones")
     
     st.write("""
-    Esta aplicación utiliza Isolation Forest para detectar transacciones sospechosas basándose en múltiples factores:
+    Esta aplicación utiliza Isolation Forest para detectar transacciones sospechosas basándose en:
     - Monto de la transacción
-    - Patrones de tiempo (hora del día, día de la semana)
-    - Ubicación y distancia
-    - Tipo de transacción
-    - Comportamiento del usuario
+    - Número de intentos fallidos
     """)
     
     # Initialize session state for dataframes if not exists
@@ -134,8 +79,7 @@ def main(data):
     
     if uploaded_file is not None:
         try:
-            data = pd.read_csv(uploaded_file, encoding='utf-8', quoting=1)
-            data['fecha'] = pd.to_datetime(data['fecha'])
+            data = pd.read_csv(uploaded_file)
             st.session_state.show_dataframes = True
         except Exception as e:
             st.error(f"Error al cargar el archivo: {str(e)}")
@@ -147,14 +91,14 @@ def main(data):
     results = predict_anomalies(trained_model, data)
     
     # Get anomalies
-    anomalies = results[results['es_anomalia']]
+    anomalies = results[results['is_anomaly']]
     
     # Calculate global statistics
     global_stats = {
-        'monto_mean': results['monto'].mean(),
-        'monto_std': results['monto'].std(),
-        'distancia_mean': results['distancia_km'].mean(),
-        'distancia_std': results['distancia_km'].std()
+        'amount_mean': results['amount'].mean(),
+        'amount_std': results['amount'].std(),
+        'failed_attempts_mean': results['failed_attempts'].mean(),
+        'failed_attempts_std': results['failed_attempts'].std()
     }
     
     # Prepare features for PCA
@@ -168,7 +112,7 @@ def main(data):
         fig, ax = plt.subplots(figsize=(10, 6))
         
         # Plot normal transactions
-        normal_mask = ~results['es_anomalia']
+        normal_mask = ~results['is_anomaly']
         ax.scatter(
             pca_results['pca_df'].loc[normal_mask, 'PC1'],
             pca_results['pca_df'].loc[normal_mask, 'PC2'],
@@ -178,7 +122,7 @@ def main(data):
         )
         
         # Plot anomalies
-        anomaly_mask = results['es_anomalia']
+        anomaly_mask = results['is_anomaly']
         ax.scatter(
             pca_results['pca_df'].loc[anomaly_mask, 'PC1'],
             pca_results['pca_df'].loc[anomaly_mask, 'PC2'],
@@ -196,9 +140,8 @@ def main(data):
         st.subheader("Distribución de Montos")
         fig, ax = plt.subplots(figsize=(10, 6))
         
-        sns.boxplot(data=results, x='tipo_transaccion', y='monto', ax=ax)
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=45)
-        ax.set_xlabel('Tipo de Transacción')
+        sns.boxplot(data=results, x='is_anomaly', y='amount', ax=ax)
+        ax.set_xlabel('Es Anomalía')
         ax.set_ylabel('Monto')
         st.pyplot(fig)
     
@@ -208,22 +151,11 @@ def main(data):
         
         # Format the anomalies table
         anomalies_display = anomalies[[
-            'fecha', 'monto', 'tipo_transaccion', 'ubicacion',
-            'duracion_segundos', 'transacciones_recientes_24h',
-            'saldo_anterior', 'comision', 'distancia_km',
-            'intentos_fallidos', 'puntaje_anomalia'
+            'transaction_id', 'amount', 'failed_attempts', 'anomaly_score'
         ]].copy()
         
-        # Add explanation column using global statistics
-        anomalies_display['razon'] = anomalies_display.apply(
-            lambda row: explain_anomaly(row, global_stats),
-            axis=1
-        )
-        
         # Format numeric columns
-        for col in ['monto', 'duracion_segundos', 'transacciones_recientes_24h',
-                   'saldo_anterior', 'comision', 'distancia_km',
-                   'intentos_fallidos', 'puntaje_anomalia']:
+        for col in ['amount', 'anomaly_score']:
             anomalies_display[col] = anomalies_display[col].round(2)
         
         # Display the table

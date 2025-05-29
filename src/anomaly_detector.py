@@ -4,10 +4,7 @@ Module for detecting anomalies in transaction data using Isolation Forest.
 from sklearn.ensemble import IsolationForest
 import pandas as pd
 import numpy as np
-from datetime import datetime
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 def initialize_isolation_forest():
     """
@@ -19,7 +16,7 @@ def initialize_isolation_forest():
     return IsolationForest(
         n_estimators=100,
         max_samples='auto',
-        contamination=0.014,  # This will generate approximately 14 anomalies out of 1000 transactions
+        contamination=0.01,  # 1% of transactions will be marked as anomalies
         random_state=42
     )
 
@@ -31,59 +28,25 @@ def prepare_features(data):
         data (pandas.DataFrame): Raw transaction data
         
     Returns:
-        pandas.DataFrame: Prepared features for anomaly detection
+        numpy.ndarray: Prepared features for the model
     """
-    # Create a copy of the data
-    features = data.copy()
+    # Select only the features we need
+    features = data[['amount', 'failed_attempts']].copy()
     
-    # Convert date to numeric features
-    features['hora'] = features['fecha'].dt.hour
-    features['dia_semana'] = features['fecha'].dt.dayofweek
-    features['fin_semana'] = features['fecha'].dt.dayofweek.isin([5, 6]).astype(int)
+    # Scale the features
+    scaler = StandardScaler()
+    scaled_features = scaler.fit_transform(features)
     
-    # One-hot encode categorical features
-    tipo_transaccion_dummies = pd.get_dummies(features['tipo_transaccion'], prefix='tipo')
-    ubicacion_dummies = pd.get_dummies(features['ubicacion'], prefix='ubicacion')
-    
-    # Select numeric features
-    numeric_features = [
-        'monto',
-        'duracion_segundos',
-        'transacciones_recientes_24h',
-        'saldo_anterior',
-        'comision',
-        'distancia_km',
-        'intentos_fallidos',
-        'hora',
-        'dia_semana',
-        'fin_semana'
-    ]
-    
-    # Combine numeric features with encoded categorical features
-    features = pd.concat([
-        features[numeric_features],
-        tipo_transaccion_dummies,
-        ubicacion_dummies
-    ], axis=1)
-    
-    # Calculate rolling statistics for time-based features
-    features['monto_rolling_mean'] = features['monto'].rolling(window=10, min_periods=1).mean()
-    features['monto_rolling_std'] = features['monto'].rolling(window=10, min_periods=1).std()
-    features['tiempo_entre_transacciones'] = features['hora'].diff().abs()
-    
-    # Fill NaN values
-    features = features.fillna(0)
-    
-    return features
+    return scaled_features
 
 def train_model(model, data):
     """
-    Train the anomaly detection model.
+    Train the Isolation Forest model on the data.
     
     Args:
         model (IsolationForest): The model to train
         data (pandas.DataFrame): Training data
-    
+        
     Returns:
         IsolationForest: Trained model
     """
@@ -118,7 +81,7 @@ def predict_anomalies(model, data):
     
     # Add predictions to original data
     result = data.copy()
-    result['es_anomalia'] = is_anomaly
-    result['puntaje_anomalia'] = -scores  # Convert to positive scores where higher means more anomalous
+    result['is_anomaly'] = is_anomaly
+    result['anomaly_score'] = -scores  # Convert to positive scores where higher means more anomalous
     
     return result 
